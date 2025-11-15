@@ -1,8 +1,8 @@
 #include <GL/glut.h>
 
-float tx = 150.0f;
-float ty = 80.0f;
-float tz = -200.0f;
+float tx = 150;
+float ty = 80;
+float tz = -200;
 
 void init() {
     glClearColor(1, 1, 1, 1);
