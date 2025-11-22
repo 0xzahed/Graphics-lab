@@ -1,0 +1,205 @@
+#include <GL/glut.h>
+#include <cmath>
+#include <vector>
+
+const int WIN_W = 1150;
+const int WIN_H = 580;
+
+// handy helpers
+void setOrtho() {
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    gluOrtho2D(0.0, 1.0, 0.0, 1.0);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+}
+
+void drawRect(double x0, double y0, double x1, double y1) {
+    glBegin(GL_QUADS);
+    glVertex2d(x0, y0);
+    glVertex2d(x1, y0);
+    glVertex2d(x1, y1);
+    glVertex2d(x0, y1);
+    glEnd();
+}
+
+void drawTriangle(double ax, double ay, double bx, double by, double cx, double cy) {
+    glBegin(GL_TRIANGLES);
+    glVertex2d(ax, ay);
+    glVertex2d(bx, by);
+    glVertex2d(cx, cy);
+    glEnd();
+}
+
+void drawCircle(double cx, double cy, double r, int segments = 80) {
+    glBegin(GL_TRIANGLE_FAN);
+    glVertex2d(cx, cy);
+    for (int i = 0; i <= segments; ++i) {
+        double a = 2.0 * M_PI * i / segments;
+        glVertex2d(cx + cos(a) * r, cy + sin(a) * r);
+    }
+    glEnd();
+}
+
+// Draw a 5-point star polygon (single filled polygon) - vertices are ordered to produce classic star shape
+void drawStarPolygon(double cx, double cy, double outerR, double innerR, int points = 5) {
+    std::vector<std::pair<double,double>> v;
+    v.reserve(points*2);
+    double start = M_PI/2.0; // point up
+    for (int i = 0; i < 2*points; ++i) {
+        double ang = start + i * M_PI / points;
+        double r = (i % 2 == 0) ? outerR : innerR;
+        v.emplace_back(cx + cos(ang) * r, cy + sin(ang) * r);
+    }
+    // Use triangle fan from a centroid to avoid depth artifact / winding issues.
+    // compute centroid (simple average)
+    double gx=0, gy=0;
+    for (auto &p : v) { gx += p.first; gy += p.second; }
+    gx /= v.size(); gy /= v.size();
+
+    glBegin(GL_TRIANGLES);
+    for (size_t i = 0; i < v.size(); ++i) {
+        size_t j = (i+1) % v.size();
+        glVertex2d(gx, gy);
+        glVertex2d(v[i].first, v[i].second);
+        glVertex2d(v[j].first, v[j].second);
+    }
+    glEnd();
+}
+
+// Smooth teardrop/flame built by sampling two Bézier-like curves
+void drawTeardrop(double cx, double cy, double width, double height, int segments=80) {
+    // top tip (cx, cy + height/2), bottom base center (cx, cy - height/2)
+    std::vector<std::pair<double,double>> pts;
+    // left curve from top -> bottom
+    for (int i=0;i<=segments;i++){
+        double t = double(i)/segments;
+        // simple cubic-ish curve using ease-in/out weights
+        double x = cx - width * (0.5 * sin(M_PI * t)); // left bulge
+        double y = cy + height*0.5*(1.0 - t); // linear down
+        pts.emplace_back(x, y);
+    }
+    // right curve from bottom -> top
+    for (int i=0;i<=segments;i++){
+        double t = double(i)/segments;
+        double x = cx + width * (0.5 * sin(M_PI * (1.0 - t)));
+        double y = cy - height*0.5*(1.0 - t) + height*0.5; // match y continuity
+        pts.emplace_back(x, y);
+    }
+
+    // fill polygon
+    glBegin(GL_POLYGON);
+    for (auto &p: pts) glVertex2d(p.first, p.second);
+    glEnd();
+}
+
+// small helper to set 0-255 color quickly
+void colub(int r,int g,int b) { glColor3ub((GLubyte)r,(GLubyte)g,(GLubyte)b); }
+
+void display() {
+    glClearColor(0.92f,0.92f,0.92f,1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    setOrtho();
+
+    // Full red background border
+    colub(181,17,29);
+    drawRect(0.0,0.0,1.0,1.0);
+
+    // inner rectangle region (the flag field inside the red border)
+    double border = 0.055; // tuned to match reference
+    double ix = border, iy = border, ix2 = 1.0 - border, iy2 = 1.0 - border;
+
+    // yellow inner field
+    colub(255,204,0);
+    drawRect(ix, iy, ix2, iy2);
+
+    // compute inner center and sizes
+    double cx = (ix + ix2) * 0.5;
+    double cy = (iy + iy2) * 0.5;
+
+    // green isosceles triangles left and right (meeting at center)
+    colub(0,120,84);
+    // left triangle: top-left of inner rect, bottom-left of inner rect, center
+    drawTriangle(ix, iy2, ix, iy, cx, cy);
+    // right triangle
+    drawTriangle(ix2, iy2, ix2, iy, cx, cy);
+
+    // central red disc and yellow star
+    double innerW = ix2 - ix;
+    double discR = innerW * 0.07; // tuned
+    colub(181,17,29);
+    drawCircle(cx, cy, discR, 90);
+
+    // central star (solid, no hole). outer/inner radii tuned
+    colub(255,204,0);
+    drawStarPolygon(cx, cy, discR*0.72, discR*0.32, 5);
+
+    // Top and bottom border stars: 3 across top and 3 bottom, centered in red band
+    colub(255,204,0);
+    int nStars = 3;
+    double availableX0 = ix + 0.0*(innerW*0.0); // place across inner width
+    double spacing = (innerW) / (nStars + 1);
+    double topY = 1.0 - border*0.48;
+    double botY = border*0.48;
+    double starOuter = innerW * 0.04; // tuned size
+    for (int i=0;i<nStars;i++){
+        double sx = ix + spacing*(i+1);
+        drawStarPolygon(sx, topY, starOuter, starOuter*0.42, 5);
+        drawStarPolygon(sx, botY, starOuter, starOuter*0.42, 5);
+    }
+
+    // Flame emblem positioned inside left green triangle (approx 28% in from inner left)
+    double flameCx = ix + (cx - ix) * 0.38;
+    double flameCy = cy;
+    double flameW = (iy2 - iy) * 0.26; // width
+    double flameH = (iy2 - iy) * 0.44; // height
+
+    // Outer teardrop - yellow
+    colub(255,204,0);
+    drawTeardrop(flameCx, flameCy, flameW, flameH, 80);
+
+    // Inner red tongue (smaller teardrop rotated slightly)
+    // We'll draw a rotated small teardrop by sampling and rotating around center
+    // red tongue
+    glPushMatrix();
+    glTranslatef((GLfloat)flameCx, (GLfloat)(flameCy + flameH*0.05), 0.0f);
+    glRotatef(-12.0f, 0,0,1);
+    colub(190,24,34);
+    drawTeardrop(0.0, 0.0, flameW*0.46, flameH*0.56, 60);
+    glPopMatrix();
+
+    // small green accent piece
+    glPushMatrix();
+    glTranslatef((GLfloat)(flameCx - flameW*0.3), (GLfloat)(flameCy - flameH*0.08), 0.0f);
+    glRotatef(8.0f, 0,0,1);
+    colub(0,120,84);
+    drawTeardrop(0.0, 0.0, flameW*0.34, flameH*0.36, 50);
+    glPopMatrix();
+
+    // inner thin yellow inset border around inner rectangle for crispness
+    // (slight inset to emulate picture)
+    double inset = 0.006;
+    glLineWidth(2.0f);
+    colub(181,17,29); // draw small red trim in corners if desired (optional)
+    // done
+
+    glutSwapBuffers();
+}
+
+void reshape(int w, int h) {
+    glViewport(0,0,w,h);
+    setOrtho();
+}
+
+int main(int argc, char** argv) {
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
+    glutInitWindowSize(WIN_W, WIN_H);
+    glutCreateWindow("Flag Redesign - OpenGL (GLUT)");
+
+    glutDisplayFunc(display);
+    glutReshapeFunc(reshape);
+    glDisable(GL_DEPTH_TEST);
+    glutMainLoop();
+    return 0;
+}
